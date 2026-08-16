@@ -48,7 +48,6 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    needs: build-linux
     timeout-minutes: 360
     runs-on: windows-latest
     permissions:
