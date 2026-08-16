@@ -5,22 +5,52 @@ on:
     branches: [ master ]
 
 jobs:
-  build:
-    timeout-minutes: 120
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            host: linux
-            arch: linux_gcc_64
-            qt: '6.9.*'
-            triplet: x64-linux-release
-          - os: windows-latest
-            host: windows
-            arch: win64_msvc2022_64
-            qt: '6.9.*'
-            triplet: x64-windows-release
-    runs-on: ${{ matrix.os }}
+  build-linux:
+    timeout-minutes: 360
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-linux-
+
+      - name: Configure (CMake)
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+        run: |
+          vcpkg install --triplet=x64-linux-release --overlay-triplets=${{ github.workspace }}/triplets --clean-after-build
+
+      - name: Package Linux
+        shell: bash
+        run: |
+          cd vcpkg_installed/x64-linux-release
+          zip -r \
+            "${{ github.workspace }}/onnxruntime-1.23.2-ov-x64-linux-rel.zip" \
+            .
+
+      - name: Upload Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: onnxruntime-1.23.2-ov-x64-linux-rel
+          path: onnxruntime-1.23.2-ov-x64-linux-rel.zip
+          if-no-files-found: error
+
+  build-windows:
+    needs: build-linux
+    timeout-minutes: 360
+    runs-on: windows-latest
     permissions:
       contents: read
 
@@ -31,7 +61,6 @@ jobs:
           submodules: recursive
 
       - name: Setup MSVC
-        if: matrix.host == 'windows'
         uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
@@ -40,23 +69,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .vcpkg-cache
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-windows-
 
-      - name: Configure (CMake - Linux)
-        if: matrix.host == 'linux'
-        shell: bash
-        env:
-          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
-        run: |
-          vcpkg install --triplet=${{ matrix.triplet }} --overlay-triplets=${{ github.workspace }}/triplets
-          
-        
-      - name: Configure (CMake - Windows)
-        if: matrix.host == 'windows'
+      - name: Configure (CMake)
         shell: pwsh
         env:
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
         run: |
-          vcpkg install --triplet=${{ matrix.triplet }} --overlay-triplets=${{ github.workspace }}/triplets
+          vcpkg install --triplet=x64-windows-release --overlay-triplets=${{ github.workspace }}/triplets --clean-after-build
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          cd vcpkg_installed/x64-windows-release
+          zip -r "${{ github.workspace }}/onnxruntime-1.23.2-ov-x64-windows-rel.zip" .
+
+      - name: Upload Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: onnxruntime-1.23.2-ov-x64-windows-rel
+          path: onnxruntime-1.23.2-ov-x64-windows-rel.zip
+          if-no-files-found: error
