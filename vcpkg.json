@@ -1,0 +1,16 @@
+{
+  "dependencies": [
+    {
+        "name": "onnxruntime",
+        "default-features": false,
+        "features": ["openvino"],
+        "version>=": "1.23.2#1"
+    },
+    {
+        "name": "openvino",
+        "default-features": false,
+        "features": ["auto", "cpu", "gpu", "ir"],
+        "version>=": "2026.1.0#1"
+    }
+  ]
+}

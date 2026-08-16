@@ -1,0 +1,62 @@
+name: CI for _deps
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            host: linux
+            arch: linux_gcc_64
+            qt: '6.9.*'
+            triplet: x64-linux-release
+          - os: windows-latest
+            host: windows
+            arch: win64_msvc2022_64
+            qt: '6.9.*'
+            triplet: x64-windows-release
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        if: matrix.host == 'windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Configure (CMake - Linux)
+        if: matrix.host == 'linux'
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+        run: |
+          vcpkg install --triplet=${{ matrix.triplet }} --overlay-triplets=${{ github.workspace }}/triplets
+          
+        
+      - name: Configure (CMake - Windows)
+        if: matrix.host == 'windows'
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+        run: |
+          vcpkg install --triplet=${{ matrix.triplet }} --overlay-triplets=${{ github.workspace }}/triplets
