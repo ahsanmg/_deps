@@ -91,7 +91,7 @@ jobs:
 
           Write-Host "OpenVINO SHA256 verified: $actual"
 
-          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\openvino"
+          Expand-Archive $zip -DestinationPath "${{ github.workspace }}\openvino"
 
       - name: Checkout ONNXRuntime
         uses: actions/checkout@v6
