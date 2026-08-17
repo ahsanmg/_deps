@@ -121,7 +121,6 @@ jobs:
             --cmake_generator Ninja `
             --use_openvino GPU `
             --build_shared_lib `
-            --use_vcpkg `
             --compile_no_warning_as_error `
             --skip_tests `
             --parallel `
