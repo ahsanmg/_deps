@@ -116,7 +116,6 @@ jobs:
 
           cd onnxruntime
           .\build.bat `
-            --build_dir build `
             --config Release `
             --cmake_generator Ninja `
             --use_openvino GPU `
@@ -124,14 +123,14 @@ jobs:
             --compile_no_warning_as_error `
             --skip_tests `
             --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-1.24.4
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
 
-          ninja -C build install
+          ninja -C build\Windows install
 
       - name: Package Windows
         shell: pwsh
         run: |
-          cd ${{ github.workspace }}/ort-1.24.4
+          cd ${{ github.workspace }}\ort-1.24.4
           zip -r "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-windows-rel.zip" .
 
       - name: Upload Package
