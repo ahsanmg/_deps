@@ -72,12 +72,52 @@ jobs:
           restore-keys: |
             vcpkg-windows-
 
-      - name: Configure (CMake)
+      - name: Download OpenVINO archive
+        shell: pwsh
+        run: |
+          $base = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/windows"
+          $zip  = "openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip"
+          $sha  = "$zip.sha256"
+
+          Invoke-WebRequest "$base/$zip" -OutFile $zip
+          Invoke-WebRequest "$base/$sha" -OutFile $sha
+
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          $expected = (Get-Content $sha -Raw).Trim().Split()[0].ToLower()
+
+          if ($actual -ne $expected) {
+              throw "OpenVINO SHA256 mismatch: expected $expected, got $actual"
+          }
+
+          Write-Host "OpenVINO SHA256 verified: $actual"
+
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\openvino"
+
+      - name: Checkout ONNXRuntime
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/onnxruntime
+          ref: v1.24.4
+          path: onnxruntime
+          fetch-depth: 1
+
+      - name: Build ONNXRuntime
         shell: pwsh
         env:
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
         run: |
-          vcpkg install --triplet=x64-windows-release --overlay-triplets=${{ github.workspace }}/triplets --clean-after-build
+          . .\openvino\setupvars.ps1
+          cd onnxruntime
+          .\build.bat `
+            --build_dir build `
+            --config Release `
+            --cmake_generator Ninja `
+            --use_openvino GPU `
+            --build_shared_lib `
+            --use_vcpkg `
+            --compile_no_warning_as_error `
+            --skip_tests `
+            --parallel
 
       - name: Package Windows
         shell: pwsh
