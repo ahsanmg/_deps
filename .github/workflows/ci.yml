@@ -117,17 +117,20 @@ jobs:
             --use_vcpkg `
             --compile_no_warning_as_error `
             --skip_tests `
-            --parallel
+            --parallel `
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-1.24.4
+
+          ninja -C build install
 
       - name: Package Windows
         shell: pwsh
         run: |
-          cd vcpkg_installed/x64-windows-release
-          zip -r "${{ github.workspace }}/onnxruntime-1.23.2-ov-x64-windows-rel.zip" .
+          cd ${{ github.workspace }}/ort-1.24.4
+          zip -r "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-windows-rel.zip" .
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
         with:
-          name: onnxruntime-1.23.2-ov-x64-windows-rel
-          path: onnxruntime-1.23.2-ov-x64-windows-rel.zip
+          name: onnxruntime-1.24.4-ov-x64-windows-rel
+          path: onnxruntime-1.24.4-ov-x64-windows-rel.zip
           if-no-files-found: error
