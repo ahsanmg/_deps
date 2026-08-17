@@ -91,7 +91,11 @@ jobs:
 
           Write-Host "OpenVINO SHA256 verified: $actual"
 
-          Expand-Archive $zip -DestinationPath "${{ github.workspace }}\openvino"
+          New-Item -ItemType Directory -Force .\openvino | Out-Null
+
+          tar -xf .\openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip -C .\openvino --strip-components=1
+
+          Get-ChildItem .
 
       - name: Checkout ONNXRuntime
         uses: actions/checkout@v6
@@ -106,7 +110,10 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
         run: |
-          . .\openvino\setupvars.ps1
+          Get-ChildItem
+
+          . ${{ github.workspace }}\openvino\setupvars.ps1
+
           cd onnxruntime
           .\build.bat `
             --build_dir build `
