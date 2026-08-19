@@ -2,7 +2,7 @@ name: CI for _deps
 
 on:
   push:
-    branches: [ master, optional-builds ]
+    branches: [ master ]
 
 jobs:
   build-linux:
