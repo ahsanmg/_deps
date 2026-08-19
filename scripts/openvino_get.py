@@ -1,6 +1,7 @@
 import sys
 import hashlib
 import tarfile
+import zipfile
 import urllib.request
 from pathlib import Path
 from argparse import ArgumentParser
@@ -61,6 +62,72 @@ def _sha256(path: Path) -> str:
     return sha256.hexdigest().lower()
 
 
+def extract_archive(archive: Path, output_dir: Path):
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Extracting {archive}...")
+
+    if archive.suffix.lower() == ".zip":
+        with zipfile.ZipFile(archive, "r") as z:
+            members = z.infolist()
+            total = len(members)
+
+            for index, member in enumerate(members, 1):
+                parts = Path(member.filename).parts
+
+                if len(parts) <= 1:
+                    continue
+
+                # Strip first directory component.
+                relative_path = Path(*parts[1:])
+
+                target = output_dir / relative_path
+
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+
+                    with z.open(member) as src, target.open("wb") as dst:
+                        dst.write(src.read())
+
+                percent = index / total * 100
+                print(
+                    f"\rExtracting: {percent:6.2f}% "
+                    f"({index}/{total})",
+                    end="",
+                    flush=True,
+                )
+
+    elif archive.name.lower().endswith((".tar.gz", ".tgz")):
+        with tarfile.open(archive, "r:gz") as tar:
+            members = tar.getmembers()
+            total = len(members)
+
+            for index, member in enumerate(members, 1):
+                parts = Path(member.name).parts
+
+                if len(parts) <= 1:
+                    continue
+
+                member.name = str(Path(*parts[1:]))
+                tar.extract(member, output_dir)
+
+                percent = index / total * 100
+                print(
+                    f"\rExtracting: {percent:6.2f}% "
+                    f"({index}/{total})",
+                    end="",
+                    flush=True,
+                )
+
+    else:
+        raise ValueError(f"Unsupported archive format: {archive}")
+
+    print()
+    print(f"Extracted {archive} to {output_dir}")
+
+
 def get_openvino(
     base: str,
     archive: str,
@@ -69,6 +136,7 @@ def get_openvino(
 ):
     archive_path = Path(archive)
     sha_path = Path(sha_file)
+    output_dir = Path(output_dir)
 
     # Download archive
     _download(
@@ -97,37 +165,7 @@ def get_openvino(
     print(f"OpenVINO SHA256 verified: {actual}")
 
     # Extract
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Extracting {archive}...")
-
-    with tarfile.open(archive, "r:gz") as tar:
-        members = tar.getmembers()
-        total = len(members)
-
-        for index, member in enumerate(members, 1):
-            parts = Path(member.name).parts
-
-            if len(parts) <= 1:
-                continue
-
-            member.name = str(Path(*parts[1:]))
-            tar.extract(member, output_dir)
-
-            percent = index / total * 100
-
-            print(
-                f"\rExtracting: {percent:6.2f}% "
-                f"({index}/{total})",
-                end="",
-                flush=True,
-            )
-
-    print()
-    print(f"Extracted {archive} to {output_dir}")
-
-    for path in output_dir.iterdir():
-        print(f"  {path}")
+    extract_archive(archive_path, output_dir)
 
 
 if __name__ == "__main__":
