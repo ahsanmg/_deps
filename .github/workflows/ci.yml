@@ -2,7 +2,7 @@ name: CI for _deps
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, optional-builds ]
 
 jobs:
   build-linux:
@@ -30,6 +30,11 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
         run: |
+          python scripts/openvino_get.py \
+            --ov_base "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/linux" \
+            --ov_archive "openvino_toolkit_ubuntu24_2025.4.1.20426.82bbf0292c5_x86_64.tgz" \
+            --ov_dir "openvino"
+
           vcpkg install --triplet=x64-linux-release --overlay-triplets=${{ github.workspace }}/triplets --clean-after-build
 
       - name: Package Linux
@@ -75,25 +80,10 @@ jobs:
       - name: Download OpenVINO archive
         shell: pwsh
         run: |
-          $base = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/windows"
-          $zip  = "openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip"
-          $sha  = "$zip.sha256"
-
-          Invoke-WebRequest "$base/$zip" -OutFile $zip
-          Invoke-WebRequest "$base/$sha" -OutFile $sha
-
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          $expected = (Get-Content $sha -Raw).Trim().Split()[0].ToLower()
-
-          if ($actual -ne $expected) {
-              throw "OpenVINO SHA256 mismatch: expected $expected, got $actual"
-          }
-
-          Write-Host "OpenVINO SHA256 verified: $actual"
-
-          New-Item -ItemType Directory -Force .\openvino | Out-Null
-
-          tar -xf .\openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip -C .\openvino --strip-components=1
+          python scripts/openvino_get.py `
+            --ov_base "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/windows" `
+            --ov_archive "openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip" `
+            --ov_dir "${{ github.workspace }}\openvino"
 
           Get-ChildItem .
 
@@ -130,27 +120,15 @@ jobs:
       - name: Package Windows
         shell: pwsh
         run: |
-          cd ${{ github.workspace }}\ort-1.24.4
+          python scripts/copy_libraries.py `
+            --bin_dir "${{ github.workspace }}\ort-1.24.4\bin" `
+            --pkg_dir "${{ github.workspace }}\openvino"
 
-          $OpenVinoDir = "${{ github.workspace }}\openvino"
-          $TargetBinDir = ".\bin"
-
-          if (!(Test-Path $TargetBinDir)) { New-Item -ItemType Directory -Path $TargetBinDir }
-
-          # Find and copy all DLL files
-          Get-ChildItem -Path $OpenVinoDir -Filter *.dll -Recurse | ForEach-Object {
-              $DestFile = Join-Path $TargetBinDir $_.Name
-              if (!(Test-Path $DestFile)) {
-                  Copy-Item -Path $_.FullName -Destination $TargetBinDir -Force
-                  Write-Host "Copied: $($_.Name)" -ForegroundColor Green
-              }
-          }
-
-          tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" .
+          tar -czf "${{ github.workspace }}\onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-1.24.4"
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
         with:
           name: onnxruntime-1.24.4-ov-x64-windows-rel
-          path: onnxruntime-1.24.4-ov-x64-windows-rel.zip
+          path: onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz
           if-no-files-found: error
