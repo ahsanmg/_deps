@@ -21,7 +21,7 @@ on:
           - Release
 
 jobs:
-  build-linux:
+  build-ubuntu:
     timeout-minutes: 360
     runs-on: ubuntu-latest
     permissions:
@@ -37,35 +37,61 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .vcpkg-cache
-          key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-ubuntu-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-linux-
+            vcpkg-ubuntu-
 
-      - name: Configure (CMake)
+      - name: Download OpenVINO archive
         shell: bash
-        env:
-          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
         run: |
           python scripts/openvino_get.py \
             --ov_base "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/linux" \
             --ov_archive "openvino_toolkit_ubuntu24_2025.4.1.20426.82bbf0292c5_x86_64.tgz" \
             --ov_dir "openvino"
 
-          vcpkg install --triplet=x64-linux-release --overlay-triplets=${{ github.workspace }}/triplets --clean-after-build
+          ls .
 
-      - name: Package Linux
+      - name: Checkout ONNXRuntime
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/onnxruntime
+          ref: v1.24.4
+          path: onnxruntime
+          fetch-depth: 1
+
+      - name: Build ONNXRuntime
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+        run: |
+          source ${{ github.workspace }}/openvino/setupvars.sh
+
+          cd onnxruntime
+          source build.sh \
+            --config Release \
+            --cmake_generator Ninja \
+            --use_openvino GPU \
+            --build_shared_lib \
+            --compile_no_warning_as_error \
+            --skip_tests \
+            --parallel \
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+
+      - name: Package Ubuntu
         shell: bash
         run: |
-          cd vcpkg_installed/x64-linux-release
-          zip -r \
-            "${{ github.workspace }}/onnxruntime-1.23.2-ov-x64-linux-rel.zip" \
-            .
+          python scripts/copy_libraries.py \
+            --bin_dir "${{ github.workspace }}/ort-1.24.4/bin" \
+            --pkg_dir "${{ github.workspace }}/openvino"
+
+          tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz" \
+            "${{ github.workspace }}/ort-1.24.4"
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
         with:
-          name: onnxruntime-1.23.2-ov-x64-linux-rel
-          path: onnxruntime-1.23.2-ov-x64-linux-rel.zip
+          name: onnxruntime-1.24.4-ov-x64-ubuntu-rel
+          path: onnxruntime-1.24.4-ov-x64-ubuntu-rel.zip
           if-no-files-found: error
 
   build-windows:
