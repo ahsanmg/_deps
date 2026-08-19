@@ -64,6 +64,11 @@ jobs:
         with:
           arch: x64
 
+      - name: Install Ninja
+        uses: ashutoshvarma/setup-ninja@master
+        with:
+          version: 1.11.1
+
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
         with:
@@ -118,12 +123,13 @@ jobs:
           .\build.bat `
             --config Release `
             --cmake_generator Ninja `
+            --use_vcpkg `
             --use_openvino GPU `
             --build_shared_lib `
             --compile_no_warning_as_error `
             --skip_tests `
             --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+            --cmake_extra_defines "CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-1.24.4" "onnxruntime_BUILD_UNIT_TESTS=OFF" "CMAKE_COMPILE_WARNING_AS_ERROR=OFF" "BENCHMARK_ENABLE_WERROR=OFF"
 
           ninja -C build\Windows\Release install
 
@@ -131,7 +137,7 @@ jobs:
         shell: pwsh
         run: |
           cd ${{ github.workspace }}\ort-1.24.4
-          zip -r "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-windows-rel.zip" .
+          tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" .
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
