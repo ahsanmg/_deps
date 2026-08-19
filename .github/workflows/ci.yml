@@ -82,7 +82,7 @@ jobs:
         run: |
           python scripts/copy_libraries.py \
             --bin_dir "${{ github.workspace }}/ort-1.24.4/bin" \
-            --pkg_dir "${{ github.workspace }}/openvino"
+            --pkg_dir "${{ github.workspace }}/openvino/runtime"
 
           tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz" \
             "${{ github.workspace }}/ort-1.24.4"
@@ -91,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: onnxruntime-1.24.4-ov-x64-ubuntu-rel
-          path: onnxruntime-1.24.4-ov-x64-ubuntu-rel.zip
+          path: onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz
           if-no-files-found: error
 
   build-windows:
@@ -164,7 +164,7 @@ jobs:
         run: |
           python scripts/copy_libraries.py `
             --bin_dir "${{ github.workspace }}\ort-1.24.4\bin" `
-            --pkg_dir "${{ github.workspace }}\openvino"
+            --pkg_dir "${{ github.workspace }}\openvino\runtime"
 
           tar -czf "${{ github.workspace }}\onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-1.24.4"
 
