@@ -3,6 +3,22 @@ name: CI for _deps
 on:
   push:
     branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      package:
+        type: choice
+        options:
+          - onnxruntime
+
+      version:
+        description: "Version"
+        required: true
+        default: "1.24.4"
+
+      configuration:
+        type: choice
+        options:
+          - Release
 
 jobs:
   build-linux:
