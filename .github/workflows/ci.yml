@@ -1,8 +1,6 @@
 name: CI for _deps
 
 on:
-  push:
-    branches: [ master ]
   workflow_dispatch:
     inputs:
       package:
@@ -11,21 +9,78 @@ on:
           - onnxruntime
 
       version:
-        description: "Version"
+        description: "Version/Branch/Tag"
         required: true
-        default: "1.24.4"
+        type: string
+        default: "v1.24.4"
 
-      configuration:
-        type: choice
-        options:
-          - Release
+concurrency:
+  group: monthly-deps-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    outputs:
+      tag: ${{ steps.month.outputs.tag }}
+      windows-exists: ${{ steps.assets.outputs.windows-exists }}
+
+    steps:
+      - name: Determine monthly tag
+        id: month
+        shell: bash
+        run: |
+          TAG="$(date -u +'%Y.%m')"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Monthly tag: $TAG"
+
+      - name: Ensure monthly release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes "Monthly dependency build artifacts for $TAG"
+          fi
+
+      - name: Check existing assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+        shell: bash
+        run: |
+          WINDOWS_ASSET="onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
+
+          if gh release view "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[].name' |
+              grep -Fxq "$WINDOWS_ASSET"; then
+            echo "Windows asset already exists: $WINDOWS_ASSET"
+            echo "windows-exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Windows asset does not exist"
+            echo "windows-exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-ubuntu:
+    needs: prepare-release
     timeout-minutes: 360
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -55,7 +110,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: microsoft/onnxruntime
-          ref: v1.24.4
+          ref: ${{ inputs.version }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -75,30 +130,45 @@ jobs:
             --compile_no_warning_as_error \
             --skip_tests \
             --parallel \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
 
       - name: Package Ubuntu
         shell: bash
         run: |
           python scripts/copy_libraries.py \
-            --bin_dir "${{ github.workspace }}/ort-1.24.4/bin" \
+            --bin_dir "${{ github.workspace }}/ort-${{ inputs.version }}/bin" \
             --pkg_dir "${{ github.workspace }}/openvino/runtime"
 
-          tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz" \
-            "${{ github.workspace }}/ort-1.24.4"
+          tar -czf "${{ github.workspace }}/onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz" \
+            "${{ github.workspace }}/ort-${{ inputs.version }}"
 
-      - name: Upload Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: onnxruntime-1.24.4-ov-x64-ubuntu-rel
-          path: onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz
-          if-no-files-found: error
+      - name: Upload monthly Ubuntu asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          ASSET="${{ github.workspace }}/onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
+          NAME="$(basename "$ASSET")"
+
+          if gh release view "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[].name' |
+              grep -Fxq "$NAME"; then
+            echo "Asset already exists: $NAME"
+          else
+            gh release upload "$TAG" "$ASSET" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
 
   build-windows:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.windows-exists != 'true'
     timeout-minutes: 360
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -133,7 +203,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: microsoft/onnxruntime
-          ref: v1.24.4
+          ref: ${{ inputs.version }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -155,7 +225,7 @@ jobs:
             --compile_no_warning_as_error `
             --skip_tests `
             --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
 
           ninja -C build\Windows\Release install
 
@@ -163,14 +233,29 @@ jobs:
         shell: pwsh
         run: |
           python scripts/copy_libraries.py `
-            --bin_dir "${{ github.workspace }}\ort-1.24.4\bin" `
+            --bin_dir "${{ github.workspace }}\ort-${{ inputs.version }}\bin" `
             --pkg_dir "${{ github.workspace }}\openvino\runtime"
 
-          tar -czf "${{ github.workspace }}\onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-1.24.4"
+          tar -czf "${{ github.workspace }}\onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-${{ inputs.version }}"
 
-      - name: Upload Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: onnxruntime-1.24.4-ov-x64-windows-rel
-          path: onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz
-          if-no-files-found: error
+      - name: Upload monthly Windows asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: pwsh
+        run: |
+          $asset = "${{ github.workspace }}\onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
+          $name = Split-Path $asset -Leaf
+
+          $existing = gh release view $env:TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --json assets `
+            --jq '.assets[].name'
+
+          if ($existing -contains $name) {
+              Write-Host "Asset already exists: $name"
+          }
+          else {
+              gh release upload $env:TAG $asset `
+                --repo $env:GITHUB_REPOSITORY
+          }
