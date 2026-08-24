@@ -1,8 +1,6 @@
 name: CI for _deps
 
 on:
-  push:
-    branches: [ master ]
   workflow_dispatch:
     inputs:
       package:
@@ -11,9 +9,10 @@ on:
           - onnxruntime
 
       version:
-        description: "Version"
+        description: "Version/Branch/Tag"
         required: true
-        default: "1.24.4"
+        type: string
+        default: "v1.24.4"
 
       configuration:
         type: choice
@@ -55,7 +54,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: microsoft/onnxruntime
-          ref: v1.24.4
+          ref: ${{ inputs.version }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -75,23 +74,23 @@ jobs:
             --compile_no_warning_as_error \
             --skip_tests \
             --parallel \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
 
       - name: Package Ubuntu
         shell: bash
         run: |
           python scripts/copy_libraries.py \
-            --bin_dir "${{ github.workspace }}/ort-1.24.4/bin" \
+            --bin_dir "${{ github.workspace }}/ort-${{ inputs.version }}/bin" \
             --pkg_dir "${{ github.workspace }}/openvino/runtime"
 
-          tar -czf "${{ github.workspace }}/onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz" \
-            "${{ github.workspace }}/ort-1.24.4"
+          tar -czf "${{ github.workspace }}/onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz" \
+            "${{ github.workspace }}/ort-${{ inputs.version }}"
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
         with:
-          name: onnxruntime-1.24.4-ov-x64-ubuntu-rel
-          path: onnxruntime-1.24.4-ov-x64-ubuntu-rel.tar.gz
+          name: onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel
+          path: onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz
           if-no-files-found: error
 
   build-windows:
@@ -133,7 +132,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: microsoft/onnxruntime
-          ref: v1.24.4
+          ref: ${{ inputs.version }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -155,7 +154,7 @@ jobs:
             --compile_no_warning_as_error `
             --skip_tests `
             --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-1.24.4 onnxruntime_BUILD_UNIT_TESTS=OFF
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
 
           ninja -C build\Windows\Release install
 
@@ -163,14 +162,14 @@ jobs:
         shell: pwsh
         run: |
           python scripts/copy_libraries.py `
-            --bin_dir "${{ github.workspace }}\ort-1.24.4\bin" `
+            --bin_dir "${{ github.workspace }}\ort-${{ inputs.version }}\bin" `
             --pkg_dir "${{ github.workspace }}\openvino\runtime"
 
-          tar -czf "${{ github.workspace }}\onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-1.24.4"
+          tar -czf "${{ github.workspace }}\onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-${{ inputs.version }}"
 
       - name: Upload Package
         uses: actions/upload-artifact@v4
         with:
-          name: onnxruntime-1.24.4-ov-x64-windows-rel
-          path: onnxruntime-1.24.4-ov-x64-windows-rel.tar.gz
+          name: onnxruntime-${{ inputs.version }}-ov-x64-windows-rel
+          path: onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz
           if-no-files-found: error
