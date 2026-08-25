@@ -14,6 +14,10 @@ on:
         type: string
         default: "v1.24.4"
 
+      features:
+        description: "Features"
+        type: string
+
 concurrency:
   group: monthly-deps-${{ github.ref }}
   cancel-in-progress: false
@@ -132,15 +136,18 @@ jobs:
             --parallel \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
 
+          ninja -C build/Linux/Release install
+
       - name: Package Ubuntu
+        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
           python scripts/copy_libraries.py \
-            --bin_dir "${{ github.workspace }}/ort-${{ inputs.version }}/bin" \
+            --bin_dir "${{ github.workspace }}/ort-${{ inputs.version }}/lib" \
             --pkg_dir "${{ github.workspace }}/openvino/runtime"
 
-          tar -czf "${{ github.workspace }}/onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz" \
-            "${{ github.workspace }}/ort-${{ inputs.version }}"
+          python scripts/pkg_tar.py "ort-${{ inputs.version }}" "onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
+          tar -tzf "onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
 
       - name: Upload monthly Ubuntu asset
         env:
@@ -230,13 +237,15 @@ jobs:
           ninja -C build\Windows\Release install
 
       - name: Package Windows
+        working-directory: ${{ github.workspace }}
         shell: pwsh
         run: |
           python scripts/copy_libraries.py `
             --bin_dir "${{ github.workspace }}\ort-${{ inputs.version }}\bin" `
             --pkg_dir "${{ github.workspace }}\openvino\runtime"
 
-          tar -czf "${{ github.workspace }}\onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz" "${{ github.workspace }}\ort-${{ inputs.version }}"
+          python scripts/pkg_tar.py "ort-${{ inputs.version }}" "onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
+          tar -tzf "onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
 
       - name: Upload monthly Windows asset
         env:
