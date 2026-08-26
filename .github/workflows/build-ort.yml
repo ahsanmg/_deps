@@ -99,8 +99,8 @@ jobs:
           echo "ep-name-tokens=$ALL_TOKENS" >> "$GITHUB_OUTPUT"
 
           TOKEN_STR="${ALL_TOKENS:+$ALL_TOKENS-}"
-          WINDOWS_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}-x64-windows.tar.gz"
-          UBUNTU_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}-x64-ubuntu.tar.gz"
+          WINDOWS_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}x64-windows.tar.gz"
+          UBUNTU_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}x64-ubuntu.tar.gz"
           echo "asset-windows=$WINDOWS_ASSET" >> "$GITHUB_OUTPUT"
           echo "asset-ubuntu=$UBUNTU_ASSET" >> "$GITHUB_OUTPUT"
 
