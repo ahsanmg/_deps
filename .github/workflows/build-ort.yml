@@ -1,0 +1,374 @@
+name: ONNXRuntime Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version/Tag"
+        required: true
+        type: string
+      eps:
+        description: "Execution Providers"
+        type: string
+      monthly-tag:
+        description: "Monthly Release Tag"
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      version:
+        description: "Version/Tag"
+        required: true
+        type: string
+      eps:
+        description: "Execution Providers"
+        type: string
+      monthly-tag:
+        description: "Monthly Release Tag"
+        required: true
+        type: string
+
+env:
+  ORT_VERSION: ${{ inputs.version }}
+  MONTHLY_TAG: ${{ inputs.monthly-tag }}
+
+concurrency:
+  group: monthly-deps-${{ github.ref }}-ort
+  cancel-in-progress: false
+
+jobs:
+  prepare-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    outputs:
+      windows-exists: ${{ steps.assets.outputs.windows-exists }}
+      ubuntu-exists: ${{ steps.assets.outputs.ubuntu-exists }}
+      windows-asset: ${{ steps.assets.outputs.asset-windows }}
+      ubuntu-asset: ${{ steps.assets.outputs.asset-ubuntu }}
+      ep-options: ${{ steps.assets.outputs.ep-options }}
+      ep-name-tokens: ${{ steps.assets.outputs.ep-name-tokens }}
+      use-openvino: ${{ steps.assets.outputs.use-openvino }}
+      use-cuda: ${{ steps.assets.outputs.use-cuda }}
+      use-dml: ${{ steps.assets.outputs.use-dml }}
+
+    steps:
+      - name: Check existing assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.monthly-tag }}
+          EPS: ${{ inputs.eps }}
+        shell: bash
+        run: |
+          echo "use-openvino=false" >> "$GITHUB_OUTPUT"
+          echo "use-cuda=false" >> "$GITHUB_OUTPUT"
+          echo "use-dml=false" >> "$GITHUB_OUTPUT"
+
+          OPTIONS=()
+          TOKENS=()
+
+          IFS=',' read -ra EP_ARRAY <<< "$EPS"
+          for ep in "${EP_ARRAY[@]}"; do
+            ep=$(echo "$ep" | xargs) # Trim whitespace
+            case "$ep" in
+              openvino|ov)
+                OPTIONS+=("--use_openvino GPU")
+                TOKENS+=("ov")
+                echo "use-openvino=true" >> "$GITHUB_OUTPUT"
+                ;;
+              cuda|cu)
+                OPTIONS+=("--use_cuda")
+                TOKENS+=("cu")
+                echo "use-cuda=true" >> "$GITHUB_OUTPUT"
+                ;;
+              dml|directml)
+                OPTIONS+=("--use_dml")
+                TOKENS+=("dml")
+                echo "use-dml=true" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                ;;
+            esac
+          done
+
+          ALL_TOKENS="$(IFS=-; echo "${TOKENS[*]}")"
+          echo "ep-options=${OPTIONS[*]}" >> "$GITHUB_OUTPUT"
+          echo "ep-name-tokens=$ALL_TOKENS" >> "$GITHUB_OUTPUT"
+
+          TOKEN_STR="${ALL_TOKENS:+$ALL_TOKENS-}"
+          WINDOWS_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}-x64-windows.tar.gz"
+          UBUNTU_ASSET="onnxruntime-${ORT_VERSION}-${TOKEN_STR}-x64-ubuntu.tar.gz"
+          echo "asset-windows=$WINDOWS_ASSET" >> "$GITHUB_OUTPUT"
+          echo "asset-ubuntu=$UBUNTU_ASSET" >> "$GITHUB_OUTPUT"
+
+          ASSET_LIST=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          if echo "$ASSET_LIST" | grep -Fxq "$WINDOWS_ASSET"; then
+            echo "windows-exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows-exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$ASSET_LIST" | grep -Fxq "$UBUNTU_ASSET"; then
+            echo "ubuntu-exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ubuntu-exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-ubuntu:
+    needs: prepare-assets
+    if: needs.prepare-assets.outputs.ubuntu-exists != 'true'
+    timeout-minutes: 360
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      UBUNTU_ASSET: ${{ needs.prepare-assets.outputs.ubuntu-asset }}
+      INSTALL_PREFIX: "${{ github.workspace }}/ort-${{ inputs.version }}"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-ubuntu-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-ubuntu-
+
+      - name: Download OpenVINO archive
+        if: needs.prepare-assets.outputs.use-openvino == 'true'
+        shell: bash
+        run: |
+          case "$ORT_VERSION" in
+            v1.20.*)
+              OV_BASE="https://storage.openvinotoolkit.org/repositories/openvino/packages/2024.4/linux"
+              OV_ARCHIVE="l_openvino_toolkit_ubuntu24_2024.4.0.16579.c3152d32c9c_x86_64.tgz"
+              ;;
+            v1.21.*)
+              OV_BASE="https://storage.openvinotoolkit.org/repositories/openvino/packages/2024.6/linux"
+              OV_ARCHIVE="l_openvino_toolkit_ubuntu24_2024.6.0.17404.4c0f47d2335_x86_64.tgz"
+              ;;
+            v1.22.*)
+              OV_BASE="https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.1/linux"
+              OV_ARCHIVE="openvino_toolkit_ubuntu24_2025.1.0.18503.6fec06580ab_x86_64.tgz"
+              ;;
+            v1.23.*)
+              OV_BASE="https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.3/linux"
+              OV_ARCHIVE="openvino_toolkit_ubuntu24_2025.3.0.19807.44526285f24_x86_64.tgz"
+              ;;
+            v1.24.*)
+              OV_BASE="https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/linux"
+              OV_ARCHIVE="openvino_toolkit_ubuntu24_2025.4.1.20426.82bbf0292c5_x86_64.tgz"
+              ;;
+            *)
+              echo "OpenVINO version not set for this ORT version: $ORT_VERSION" >&2
+              exit 1
+              ;;
+          esac
+
+          python scripts/openvino_get.py \
+            --ov_base "$OV_BASE" \
+            --ov_archive "$OV_ARCHIVE" \
+            --ov_dir "openvino"
+
+          ls .
+
+      - name: Checkout ONNXRuntime
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.version }}
+          path: onnxruntime
+          fetch-depth: 1
+
+      - name: Build ONNXRuntime
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+          EPS: ${{ needs.prepare-assets.outputs.ep-options }}
+        run: |
+          ls .
+
+          source ${{ github.workspace }}/openvino/setupvars.sh
+
+          cd onnxruntime
+          source build.sh \
+            --config Release \
+            --cmake_generator Ninja \
+            $EPS \
+            --build_shared_lib \
+            --compile_no_warning_as_error \
+            --skip_tests \
+            --parallel \
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=$INSTALL_PREFIX onnxruntime_BUILD_UNIT_TESTS=OFF
+
+          ninja -C build/Linux/Release install
+
+      - name: Package Ubuntu
+        shell: bash
+        run: |
+          python scripts/copy_libraries.py \
+            --bin_dir "$INSTALL_PREFIX/lib" \
+            --pkg_dir "${{ github.workspace }}/openvino/runtime"
+
+          python scripts/pkg_tar.py "$INSTALL_PREFIX" "$UBUNTU_ASSET"
+          tar -tzf "$UBUNTU_ASSET"
+
+      - name: Upload monthly Ubuntu asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          ASSET="${{ github.workspace }}/$UBUNTU_ASSET"
+          NAME="$(basename "$ASSET")"
+
+          if gh release view "$MONTHLY_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[].name' |
+              grep -Fxq "$NAME"; then
+            echo "Asset already exists: $NAME"
+          else
+            gh release upload "$MONTHLY_TAG" "$ASSET" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
+
+  build-windows:
+    needs: prepare-assets
+    if: needs.prepare-assets.outputs.windows-exists != 'true'
+    timeout-minutes: 360
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    env:
+      WINDOWS_ASSET: ${{ needs.prepare-assets.outputs.windows-asset }}
+      INSTALL_PREFIX: "${{ github.workspace }}/ort-${{ inputs.version }}"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-windows-
+
+      - name: Download OpenVINO archive
+        if: needs.prepare-assets.outputs.use-openvino == 'true'
+        shell: pwsh
+        run: |
+          switch -Wildcard ($env:ORT_VERSION) {
+              "v1.20.*" {
+                  $OV_BASE = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2024.4/windows"
+                  $OV_ARCHIVE = "w_openvino_toolkit_windows_2024.4.0.16579.c3152d32c9c_x86_64.zip"
+              }
+              "v1.21.*" {
+                  $OV_BASE = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2024.6/windows"
+                  $OV_ARCHIVE = "w_openvino_toolkit_windows_2024.6.0.17404.4c0f47d2335_x86_64.zip"
+              }
+              "v1.22.*" {
+                  $OV_BASE = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.1/windows"
+                  $OV_ARCHIVE = "openvino_toolkit_windows_2025.1.0.18503.6fec06580ab_x86_64.zip"
+              }
+              "v1.23.*" {
+                  $OV_BASE = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.3/windows"
+                  $OV_ARCHIVE = "openvino_toolkit_windows_2025.3.0.19807.44526285f24_x86_64.zip"
+              }
+              "v1.24.*" {
+                  $OV_BASE = "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/windows"
+                  $OV_ARCHIVE = "openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip"
+              }
+              default {
+                  Write-Error "OpenVINO version not set for this ORT version: $env:ORT_VERSION"
+                  exit 1
+              }
+          }
+
+          python scripts/openvino_get.py `
+            --ov_base "$OV_BASE" `
+            --ov_archive "$OV_ARCHIVE" `
+            --ov_dir "openvino"
+
+          Get-ChildItem .
+
+      - name: Checkout ONNXRuntime
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.version }}
+          path: onnxruntime
+          fetch-depth: 1
+
+      - name: Build ONNXRuntime
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+          EPS: ${{ needs.prepare-assets.outputs.ep-options }}
+        run: |
+          Get-ChildItem .
+
+          . ${{ github.workspace }}\openvino\setupvars.ps1
+
+          cd onnxruntime
+          .\build.bat `
+            --config Release `
+            --cmake_generator Ninja `
+            $env:EPS `
+            --build_shared_lib `
+            --compile_no_warning_as_error `
+            --skip_tests `
+            --parallel `
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX="$env:INSTALL_PREFIX" onnxruntime_BUILD_UNIT_TESTS=OFF
+
+          ninja -C build\Windows\Release install
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          python scripts/copy_libraries.py `
+            --bin_dir "$env:INSTALL_PREFIX\bin" `
+            --pkg_dir "${{ github.workspace }}\openvino\runtime"
+
+          python scripts/pkg_tar.py "$env:INSTALL_PREFIX" "$env:WINDOWS_ASSET"
+          tar -tzf "$env:WINDOWS_ASSET"
+
+      - name: Upload monthly Windows asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $asset = "${{ github.workspace }}\$env:WINDOWS_ASSET"
+          $name = Split-Path $asset -Leaf
+
+          $existing = gh release view $env:MONTHLY_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --json assets `
+            --jq '.assets[].name'
+
+          if ($existing -contains $name) {
+              Write-Host "Asset already exists: $name"
+          }
+          else {
+              gh release upload $env:MONTHLY_TAG $asset `
+                --repo $env:GITHUB_REPOSITORY
+          }
