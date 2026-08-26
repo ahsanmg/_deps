@@ -197,18 +197,27 @@ jobs:
         run: |
           ls .
 
-          source ${{ github.workspace }}/openvino/setupvars.sh
+          if [[ "${{ needs.prepare-assets.outputs.use-openvino }}" == "true" ]]; then
+            source ${{ github.workspace }}/openvino/setupvars.sh
+          fi
 
           cd onnxruntime
-          source build.sh \
-            --config Release \
-            --cmake_generator Ninja \
-            $EPS \
-            --build_shared_lib \
-            --compile_no_warning_as_error \
-            --skip_tests \
-            --parallel \
+          BUILD_ARGS=(
+            --config Release
+            --cmake_generator Ninja
+            --build_shared_lib
+            --compile_no_warning_as_error
+            --skip_tests
+            --parallel
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=$INSTALL_PREFIX onnxruntime_BUILD_UNIT_TESTS=OFF
+          )
+          
+          # Add EPS options only if they exist
+          if [[ -n "$EPS" ]]; then
+            BUILD_ARGS+=($EPS)
+          fi
+          
+          source build.sh "${BUILD_ARGS[@]}"
 
           ninja -C build/Linux/Release install
 
@@ -327,18 +336,26 @@ jobs:
         run: |
           Get-ChildItem .
 
-          . ${{ github.workspace }}\openvino\setupvars.ps1
+          if ("${{ needs.prepare-assets.outputs.use-openvino }}" -eq "true") {
+            . ${{ github.workspace }}\openvino\setupvars.ps1
+          }
 
           cd onnxruntime
-          .\build.bat `
-            --config Release `
-            --cmake_generator Ninja `
-            $env:EPS `
-            --build_shared_lib `
-            --compile_no_warning_as_error `
-            --skip_tests `
-            --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX="$env:INSTALL_PREFIX" onnxruntime_BUILD_UNIT_TESTS=OFF
+          $BuildArgs = @(
+            "--config", "Release",
+            "--cmake_generator", "Ninja",
+            "--build_shared_lib",
+            "--compile_no_warning_as_error",
+            "--skip_tests",
+            "--parallel",
+            "--cmake_extra_defines", "CMAKE_INSTALL_PREFIX=`"$env:INSTALL_PREFIX`"", "onnxruntime_BUILD_UNIT_TESTS=OFF"
+          )
+          
+          if ($env:EPS) {
+            $BuildArgs += $env:EPS.Split()
+          }
+          
+          & ".\build.bat" @BuildArgs
 
           ninja -C build\Windows\Release install
 
