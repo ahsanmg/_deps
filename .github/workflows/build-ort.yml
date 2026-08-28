@@ -130,6 +130,11 @@ jobs:
       INSTALL_PREFIX: "${{ github.workspace }}/ort-${{ inputs.version }}"
 
     steps:
+      - name: Install System Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -227,6 +232,23 @@ jobs:
           python scripts/copy_libraries.py \
             --bin_dir "$INSTALL_PREFIX/lib" \
             --pkg_dir "${{ github.workspace }}/openvino/runtime"
+
+          shopt -s nullglob
+
+          for lib in "$INSTALL_PREFIX"/lib/*.so*; do
+            echo "Patching $lib"
+            echo "  before: $(patchelf --print-rpath "$lib" 2>/dev/null || echo "<none>")"
+
+            patchelf --set-rpath '$ORIGIN' "$lib"
+
+            rpath="$(patchelf --print-rpath "$lib")"
+            echo "  after:  $rpath"
+
+            if [ "$rpath" != '$ORIGIN' ]; then
+              echo "  ERROR: RPATH was not set correctly"
+              exit 1
+            fi
+          done
 
           python scripts/pkg_tar.py "$INSTALL_PREFIX" "$UBUNTU_ASSET"
           tar -tzf "$UBUNTU_ASSET"
