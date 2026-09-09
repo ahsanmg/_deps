@@ -1,4 +1,4 @@
-name: CI for _deps
+name: Main
 
 on:
   workflow_dispatch:
@@ -12,7 +12,6 @@ on:
         description: "Version/Branch/Tag"
         required: true
         type: string
-        default: "v1.24.4"
 
       features:
         description: "Features"
@@ -30,7 +29,6 @@ jobs:
 
     outputs:
       tag: ${{ steps.month.outputs.tag }}
-      windows-exists: ${{ steps.assets.outputs.windows-exists }}
 
     steps:
       - name: Determine monthly tag
@@ -58,213 +56,12 @@ jobs:
               --notes "Monthly dependency build artifacts for $TAG"
           fi
 
-      - name: Check existing assets
-        id: assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.month.outputs.tag }}
-        shell: bash
-        run: |
-          WINDOWS_ASSET="onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
-
-          if gh release view "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json assets \
-              --jq '.assets[].name' |
-              grep -Fxq "$WINDOWS_ASSET"; then
-            echo "Windows asset already exists: $WINDOWS_ASSET"
-            echo "windows-exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Windows asset does not exist"
-            echo "windows-exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  build-ubuntu:
+  build-onnxruntime:
     needs: prepare-release
-    timeout-minutes: 360
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
-        with:
-          path: .vcpkg-cache
-          key: vcpkg-ubuntu-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-ubuntu-
-
-      - name: Download OpenVINO archive
-        shell: bash
-        run: |
-          python scripts/openvino_get.py \
-            --ov_base "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/linux" \
-            --ov_archive "openvino_toolkit_ubuntu24_2025.4.1.20426.82bbf0292c5_x86_64.tgz" \
-            --ov_dir "openvino"
-
-          ls .
-
-      - name: Checkout ONNXRuntime
-        uses: actions/checkout@v6
-        with:
-          repository: microsoft/onnxruntime
-          ref: ${{ inputs.version }}
-          path: onnxruntime
-          fetch-depth: 1
-
-      - name: Build ONNXRuntime
-        shell: bash
-        env:
-          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
-        run: |
-          source ${{ github.workspace }}/openvino/setupvars.sh
-
-          cd onnxruntime
-          source build.sh \
-            --config Release \
-            --cmake_generator Ninja \
-            --use_openvino GPU \
-            --build_shared_lib \
-            --compile_no_warning_as_error \
-            --skip_tests \
-            --parallel \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}/ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
-
-          ninja -C build/Linux/Release install
-
-      - name: Package Ubuntu
-        working-directory: ${{ github.workspace }}
-        shell: bash
-        run: |
-          python scripts/copy_libraries.py \
-            --bin_dir "${{ github.workspace }}/ort-${{ inputs.version }}/lib" \
-            --pkg_dir "${{ github.workspace }}/openvino/runtime"
-
-          python scripts/pkg_tar.py "ort-${{ inputs.version }}" "onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
-          tar -tzf "onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
-
-      - name: Upload monthly Ubuntu asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare-release.outputs.tag }}
-        shell: bash
-        run: |
-          ASSET="${{ github.workspace }}/onnxruntime-${{ inputs.version }}-ov-x64-ubuntu-rel.tar.gz"
-          NAME="$(basename "$ASSET")"
-
-          if gh release view "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json assets \
-              --jq '.assets[].name' |
-              grep -Fxq "$NAME"; then
-            echo "Asset already exists: $NAME"
-          else
-            gh release upload "$TAG" "$ASSET" \
-              --repo "$GITHUB_REPOSITORY"
-          fi
-
-  build-windows:
-    needs: prepare-release
-    if: needs.prepare-release.outputs.windows-exists != 'true'
-    timeout-minutes: 360
-    runs-on: windows-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup MSVC
-        uses: TheMrMilchmann/setup-msvc-dev@v4
-        with:
-          arch: x64
-
-      - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
-        with:
-          path: .vcpkg-cache
-          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-windows-
-
-      - name: Download OpenVINO archive
-        shell: pwsh
-        run: |
-          python scripts/openvino_get.py `
-            --ov_base "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.4.1/windows" `
-            --ov_archive "openvino_toolkit_windows_2025.4.1.20426.82bbf0292c5_x86_64.zip" `
-            --ov_dir "${{ github.workspace }}\openvino"
-
-          Get-ChildItem .
-
-      - name: Checkout ONNXRuntime
-        uses: actions/checkout@v6
-        with:
-          repository: microsoft/onnxruntime
-          ref: ${{ inputs.version }}
-          path: onnxruntime
-          fetch-depth: 1
-
-      - name: Build ONNXRuntime
-        shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
-        run: |
-          Get-ChildItem
-
-          . ${{ github.workspace }}\openvino\setupvars.ps1
-
-          cd onnxruntime
-          .\build.bat `
-            --config Release `
-            --cmake_generator Ninja `
-            --use_openvino GPU `
-            --build_shared_lib `
-            --compile_no_warning_as_error `
-            --skip_tests `
-            --parallel `
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=${{ github.workspace }}\ort-${{ inputs.version }} onnxruntime_BUILD_UNIT_TESTS=OFF
-
-          ninja -C build\Windows\Release install
-
-      - name: Package Windows
-        working-directory: ${{ github.workspace }}
-        shell: pwsh
-        run: |
-          python scripts/copy_libraries.py `
-            --bin_dir "${{ github.workspace }}\ort-${{ inputs.version }}\bin" `
-            --pkg_dir "${{ github.workspace }}\openvino\runtime"
-
-          python scripts/pkg_tar.py "ort-${{ inputs.version }}" "onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
-          tar -tzf "onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
-
-      - name: Upload monthly Windows asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare-release.outputs.tag }}
-        shell: pwsh
-        run: |
-          $asset = "${{ github.workspace }}\onnxruntime-${{ inputs.version }}-ov-x64-windows-rel.tar.gz"
-          $name = Split-Path $asset -Leaf
-
-          $existing = gh release view $env:TAG `
-            --repo $env:GITHUB_REPOSITORY `
-            --json assets `
-            --jq '.assets[].name'
-
-          if ($existing -contains $name) {
-              Write-Host "Asset already exists: $name"
-          }
-          else {
-              gh release upload $env:TAG $asset `
-                --repo $env:GITHUB_REPOSITORY
-          }
+    if: inputs.package == 'onnxruntime'
+    uses: ./.github/workflows/build-ort.yml
+    with:
+      version: ${{ inputs.version }}
+      eps: ${{ inputs.features }}
+      monthly-tag: ${{ needs.prepare-release.outputs.tag }}
+    secrets: inherit
