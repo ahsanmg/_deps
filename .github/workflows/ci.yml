@@ -65,3 +65,5 @@ jobs:
       eps: ${{ inputs.features }}
       monthly-tag: ${{ needs.prepare-release.outputs.tag }}
     secrets: inherit
+    permissions:
+      contents: write
